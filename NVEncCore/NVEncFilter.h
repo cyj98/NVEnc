@@ -150,6 +150,7 @@ protected:
 };
 
 class NVEncFilterParamNvvfxSuperRes;
+class NVEncFilterParamNvvfxVideoSuperRes;
 class NVEncFilterParamNGXVSR;
 class NVEncFilterParamLibplaceboResample;
 class DeviceDX11;
@@ -163,6 +164,7 @@ public:
     VppResizeNis nis;
     VppResizeBicubic bicubic;
     std::shared_ptr<NVEncFilterParamNvvfxSuperRes> nvvfxSuperRes;
+    std::shared_ptr<NVEncFilterParamNvvfxVideoSuperRes> nvvfxVideoSuperRes;
     std::shared_ptr<NVEncFilterParamNGXVSR> ngxvsr;
     std::shared_ptr<NVEncFilterParamLibplaceboResample> libplaceboResample;
     NVEncFilterParamResize();
@@ -171,6 +173,7 @@ public:
 };
 
 class NVEncFilterNvvfxSuperRes;
+class NVEncFilterNvvfxVideoSuperRes;
 class NVEncFilterNGXVSR;
 class NVEncFilterLibplaceboResample;
 
@@ -184,6 +187,7 @@ protected:
     RGY_ERR resizeNppi(RGYFrameInfo *pOutputFrame, const RGYFrameInfo *pInputFrame, cudaStream_t stream);
     RGY_ERR resizeNppiYUV444(RGYFrameInfo *pOutputFrame, const RGYFrameInfo *pInputFrame, cudaStream_t stream);
     RGY_ERR initNvvfxFilter(NVEncFilterParamResize *param);
+    RGY_ERR initNvvfxVideoSuperResFilter(NVEncFilterParamResize *param);
     RGY_ERR resizeNvvfxSuperRes(RGYFrameInfo *pOutputFrame, const RGYFrameInfo *pInputFrame);
     virtual void close() override;
 
@@ -198,6 +202,7 @@ protected:
     int m_nisStages;                               // NIS cascade stage count (1 for <=2x, N for larger ratios)
     std::vector<std::unique_ptr<CUFrameBuf>> m_nisCascadeInter; // NIS cascade intermediate frames (stages-1)
     std::unique_ptr<NVEncFilterNvvfxSuperRes> m_nvvfxSuperRes;
+    std::unique_ptr<NVEncFilterNvvfxVideoSuperRes> m_nvvfxVideoSuperRes;
     std::unique_ptr<NVEncFilterNGXVSR> m_ngxVSR;
     std::unique_ptr<NVEncFilterLibplaceboResample> m_libplaceboResample;
 };
