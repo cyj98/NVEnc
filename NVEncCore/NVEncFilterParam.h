@@ -61,6 +61,7 @@ static const int FILTER_DEFAULT_NVVFX_SUPER_RES_MODE = 1;
 static const float FILTER_DEFAULT_NVVFX_UPSCALER_STRENGTH = 0.4f;
 
 static const int FILTER_DEFAULT_NGX_VSR_QUALITY = 1;
+static const int FILTER_DEFAULT_NVVFX_VIDEOSUPERRES_QUALITY = 1;
 static const int FILTER_DEFAULT_NGX_TRUEHDR_CONTRAST = 125;
 static const int FILTER_DEFAULT_NGX_TRUEHDR_SATURATION = 75;
 static const int FILTER_DEFAULT_NGX_TRUEHDR_MIDDLE_GRAY = 44;
@@ -193,6 +194,16 @@ struct VppNvvfxUpScaler {
     tstring print() const;
 };
 
+struct VppNvvfxVideoSuperRes {
+    bool enable;
+    int quality;
+
+    VppNvvfxVideoSuperRes();
+    bool operator==(const VppNvvfxVideoSuperRes &x) const;
+    bool operator!=(const VppNvvfxVideoSuperRes &x) const;
+    tstring print() const;
+};
+
 struct VppNGXVSR {
     bool enable;
     int quality;
@@ -224,6 +235,7 @@ struct VppParam {
     VppNvvfxDenoise           nvvfxDenoise;
     VppNvvfxArtifactReduction nvvfxArtifactReduction;
     VppNvvfxSuperRes          nvvfxSuperRes;
+    VppNvvfxVideoSuperRes     nvvfxVideoSuperRes;
     VppNvvfxUpScaler          nvvfxUpScaler;
     tstring                   nvvfxModelDir;
     VppNGXVSR                 ngxVSR;

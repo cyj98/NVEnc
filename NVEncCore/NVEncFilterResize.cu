@@ -1268,6 +1268,7 @@ NVEncFilterResize::NVEncFilterResize() :
     m_nisStages(1),
     m_nisCascadeInter(),
     m_nvvfxSuperRes(),
+    m_nvvfxVideoSuperRes(),
     m_ngxVSR(),
     m_libplaceboResample() {
     m_name = _T("resize");
@@ -1383,6 +1384,140 @@ RGY_ERR NVEncFilterResize::initNvvfxFilter(NVEncFilterParamResize *param) {
     return RGY_ERR_UNSUPPORTED;
 }
 
+RGY_ERR NVEncFilterResize::initNvvfxVideoSuperResFilter(NVEncFilterParamResize *param) {
+    const tstring filter_name = get_cx_desc(list_vpp_resize, param->interp);
+    const int videosuperres_quality = param->nvvfxVideoSuperRes->nvvfxVideoSuperRes.quality;
+    if (videosuperres_quality >= 8 && videosuperres_quality <= 15) {
+        // quality 8-15 (denoise/deblur) run at input resolution:
+        // the VFX runtime requires output resolution == input resolution for these modes.
+        // 16-19 (high-bitrate) are upscalers like 1-4 and go through the ratio search below.
+        if (param->frameIn.width != param->frameOut.width || param->frameIn.height != param->frameOut.height) {
+            AddMessage(RGY_LOG_ERROR, _T("%s quality 8-15 (denoise/deblur) do not support resizing.\n")
+                _T("Please set --output-res to the same resolution as the input.\n"), filter_name.c_str());
+            return RGY_ERR_UNSUPPORTED;
+        }
+        unique_ptr<NVEncFilterNvvfxVideoSuperRes> filter(new NVEncFilterNvvfxVideoSuperRes());
+        param->nvvfxVideoSuperRes->frameIn = param->frameIn;
+        param->nvvfxVideoSuperRes->frameOut = param->frameOut;
+        param->nvvfxVideoSuperRes->baseFps = param->baseFps;
+        param->nvvfxVideoSuperRes->frameIn.mem_type = RGY_MEM_TYPE_GPU;
+        param->nvvfxVideoSuperRes->frameOut.mem_type = RGY_MEM_TYPE_GPU;
+        param->nvvfxVideoSuperRes->bOutOverwrite = false;
+        auto sts = filter->init(param->nvvfxVideoSuperRes, m_pLog);
+        if (sts != RGY_ERR_NONE) {
+            AddMessage(RGY_LOG_WARN, _T("Failed to init nvvfx-videosuperres (%dx%d -> %dx%d): %s.\n"),
+                param->frameIn.width, param->frameIn.height, param->frameOut.width, param->frameOut.height, get_err_mes(sts));
+            return sts;
+        }
+        m_nvvfxVideoSuperRes = std::move(filter);
+        AddMessage(RGY_LOG_DEBUG, _T("created %s at same resolution (%dx%d).\n"),
+            m_nvvfxVideoSuperRes->GetInputMessage().c_str(), param->frameIn.width, param->frameIn.height);
+        return RGY_ERR_NONE;
+    }
+    const double target_scale_ratio_min = std::min(
+        param->frameOut.width / (double)param->frameIn.width,
+        param->frameOut.height / (double)param->frameIn.height);
+    const double target_scale_ratio_max = std::max(
+        param->frameOut.width / (double)param->frameIn.width,
+        param->frameOut.height / (double)param->frameIn.height);
+    if (target_scale_ratio_max < 1.0) {
+        AddMessage(RGY_LOG_ERROR, _T("%s not supported for resize ratio below 1.0.\n"), filter_name.c_str());
+        return RGY_ERR_UNSUPPORTED;
+    }
+    if (m_nvvfxVideoSuperRes
+        // 品質変更には再初期化が必要
+        && std::dynamic_pointer_cast<NVEncFilterParamResize>(m_param)->nvvfxVideoSuperRes->nvvfxVideoSuperRes.quality == param->nvvfxVideoSuperRes->nvvfxVideoSuperRes.quality
+        && m_param->frameIn.width == param->frameIn.width
+        && m_param->frameIn.height == param->frameIn.height
+        && m_param->frameOut.width == param->frameOut.width
+        && m_param->frameOut.height == param->frameOut.height) {
+        auto newParam = param->nvvfxVideoSuperRes->nvvfxVideoSuperRes;
+        auto oldParam = std::dynamic_pointer_cast<NVEncFilterParamResize>(m_param);
+        param->nvvfxVideoSuperRes = oldParam->nvvfxVideoSuperRes;
+        param->nvvfxVideoSuperRes->nvvfxVideoSuperRes = newParam;
+        auto sts = m_nvvfxVideoSuperRes->init(param->nvvfxVideoSuperRes, m_pLog);
+        if (sts != RGY_ERR_NONE) {
+            return sts;
+        }
+        return RGY_ERR_NONE;
+    }
+    static const auto nvvfx_scale_ratio = make_array<rgy_rational<int>>(
+        rgy_rational<int>(4, 3),
+        rgy_rational<int>(3, 2),
+        rgy_rational<int>(2, 1),
+        rgy_rational<int>(3, 1),
+        rgy_rational<int>(4, 1)
+    );
+    std::vector<bool> ratio_checked(nvvfx_scale_ratio.size(), false);
+    // 入力側からチェックする
+    // allow_upscale_after_nvvfx は nvvfxの処理後に拡大リサイズを許可するかどうか?
+    for (const bool allow_upscale_after_nvvfx : { false, true }) {
+        for (int iratio = 0; iratio < (int)nvvfx_scale_ratio.size(); iratio++) {
+            const auto ratio = nvvfx_scale_ratio[iratio];
+            const double ratiod = ratio.qdouble();
+            if ((param->frameIn.height * ratio.n()) % ratio.d() != 0) {
+                continue; // 割り切れない場合は使用しない
+            }
+            if (!ratio_checked[iratio]
+                && (ratiod >= ((allow_upscale_after_nvvfx) ? target_scale_ratio_min : target_scale_ratio_max) * (1.0 - 1e-3)
+                 || ratio == nvvfx_scale_ratio.back())) {
+                ratio_checked[iratio] = true;
+                unique_ptr<NVEncFilterNvvfxVideoSuperRes> filter(new NVEncFilterNvvfxVideoSuperRes());
+                param->nvvfxVideoSuperRes->frameIn = param->frameIn;
+                param->nvvfxVideoSuperRes->frameOut = param->frameIn;
+                param->nvvfxVideoSuperRes->frameOut.width = param->frameIn.width * ratio.n() / ratio.d();
+                param->nvvfxVideoSuperRes->frameOut.height = param->frameIn.height * ratio.n() / ratio.d();
+                param->nvvfxVideoSuperRes->baseFps = param->baseFps;
+                param->nvvfxVideoSuperRes->frameIn.mem_type = RGY_MEM_TYPE_GPU;
+                param->nvvfxVideoSuperRes->frameOut.mem_type = RGY_MEM_TYPE_GPU;
+                param->nvvfxVideoSuperRes->bOutOverwrite = false;
+                auto sts = filter->init(param->nvvfxVideoSuperRes, m_pLog);
+                if (sts == RGY_ERR_NONE) {
+                    m_nvvfxVideoSuperRes = std::move(filter);
+                    AddMessage(RGY_LOG_DEBUG, _T("created %s with ratio %.1f (%dx%d -> %dx%d).\n"), m_nvvfxVideoSuperRes->GetInputMessage().c_str(), ratio.qdouble(),
+                        param->frameIn.width, param->frameIn.height, param->nvvfxVideoSuperRes->frameOut.width, param->nvvfxVideoSuperRes->frameOut.height);
+                    return RGY_ERR_NONE;
+                }
+                AddMessage(RGY_LOG_WARN, _T("Failed to init nvvfx-videosuperres with ratio %.1f (%dx%d -> %dx%d), retrying with other ratios...\n"), ratio.qdouble(),
+                    param->frameIn.width, param->frameIn.height, param->nvvfxVideoSuperRes->frameOut.width, param->nvvfxVideoSuperRes->frameOut.height);
+            }
+        }
+    }
+    // 出力側からチェックする(倍率は逆順にチェック)
+    for (int iratio = (int)nvvfx_scale_ratio.size() - 1; iratio >= 0; iratio--) {
+        const auto ratio = nvvfx_scale_ratio[iratio];
+        if ((param->frameOut.width * ratio.d()) % ratio.n() != 0 || (param->frameOut.height * ratio.d()) % ratio.n() != 0) {
+            continue; // 割り切れない場合は使用しない
+        }
+        const int inWidth = param->frameOut.width * ratio.d() / ratio.n();
+        const int inHeight = param->frameOut.height * ratio.d() / ratio.n();
+        if (inWidth * inHeight < param->frameIn.width * param->frameIn.height) {
+            continue; // 入力サイズが小さい場合は使用しない
+        }
+        unique_ptr<NVEncFilterNvvfxVideoSuperRes> filter(new NVEncFilterNvvfxVideoSuperRes());
+        param->nvvfxVideoSuperRes->frameIn = param->frameOut;
+        param->nvvfxVideoSuperRes->frameIn.width = inWidth;
+        param->nvvfxVideoSuperRes->frameIn.height = inHeight;
+        param->nvvfxVideoSuperRes->frameOut = param->frameOut;
+        param->nvvfxVideoSuperRes->baseFps = param->baseFps;
+        param->nvvfxVideoSuperRes->frameIn.mem_type = RGY_MEM_TYPE_GPU;
+        param->nvvfxVideoSuperRes->frameOut.mem_type = RGY_MEM_TYPE_GPU;
+        param->nvvfxVideoSuperRes->bOutOverwrite = false;
+        auto sts = filter->init(param->nvvfxVideoSuperRes, m_pLog);
+        if (sts == RGY_ERR_NONE) {
+            m_nvvfxVideoSuperRes = std::move(filter);
+            AddMessage(RGY_LOG_DEBUG, _T("created %s with ratio %.1f (%dx%d -> %dx%d).\n"), m_nvvfxVideoSuperRes->GetInputMessage().c_str(), ratio.qdouble(),
+                inWidth, inHeight, param->frameOut.width, param->frameOut.height);
+            return RGY_ERR_NONE;
+        }
+        AddMessage(RGY_LOG_WARN, _T("Failed to init nvvfx-videosuperres with ratio %.1f (%dx%d -> %dx%d), retrying with other ratios...\n"), ratio.qdouble(),
+            inWidth, inHeight, param->frameOut.width, param->frameOut.height);
+    }
+
+    AddMessage(RGY_LOG_ERROR, _T("Suitable ratio for nvvfx-videosuperres not found.\n"));
+    return RGY_ERR_UNSUPPORTED;
+}
+
 RGY_ERR NVEncFilterResize::init(shared_ptr<NVEncFilterParam> pParam, shared_ptr<RGYLog> pPrintMes) {
     RGY_ERR sts = RGY_ERR_NONE;
     m_pLog = pPrintMes;
@@ -1419,7 +1554,18 @@ RGY_ERR NVEncFilterResize::init(shared_ptr<NVEncFilterParam> pParam, shared_ptr<
     }
 
     auto resizeInterp = pResizeParam->interp;
-    if (isNvvfxResizeFiter(pResizeParam->interp)) {
+    if (pResizeParam->interp == RGY_VPP_RESIZE_NVVFX_VIDEO_SUPER_RES) {
+        if (!pResizeParam->nvvfxVideoSuperRes) {
+            AddMessage(RGY_LOG_ERROR, _T("nvvfx parameter unknown.\n"));
+            return RGY_ERR_UNKNOWN;
+        }
+        sts = initNvvfxVideoSuperResFilter(pResizeParam.get());
+        if (sts != RGY_ERR_NONE) {
+            AddMessage(RGY_LOG_ERROR, _T("Failed to init nvvfx filter: %s.\n"), get_err_mes(sts));
+            return sts;
+        }
+        resizeInterp = pResizeParam->nvvfxSubAlgo;
+    } else if (isNvvfxResizeFiter(pResizeParam->interp)) {
         if (!pResizeParam->nvvfxSuperRes) {
             AddMessage(RGY_LOG_ERROR, _T("nvvfx parameter unknown.\n"));
             return RGY_ERR_UNKNOWN;
@@ -1432,7 +1578,9 @@ RGY_ERR NVEncFilterResize::init(shared_ptr<NVEncFilterParam> pParam, shared_ptr<
         resizeInterp = pResizeParam->nvvfxSubAlgo;
     } else {
         m_nvvfxSuperRes.reset(); // 不要になったら解放
+        m_nvvfxVideoSuperRes.reset();
         pResizeParam->nvvfxSuperRes.reset();
+        pResizeParam->nvvfxVideoSuperRes.reset();
     }
     if (isNgxResizeFiter(pResizeParam->interp)) {
         if (!m_ngxVSR) {
@@ -1598,32 +1746,36 @@ RGY_ERR NVEncFilterResize::init(shared_ptr<NVEncFilterParam> pParam, shared_ptr<
     }
 
     tstring info;
-    if (m_nvvfxSuperRes) {
+    if (m_nvvfxSuperRes || m_nvvfxVideoSuperRes) {
+        NVEncFilter *nvvfxFilter = (m_nvvfxVideoSuperRes) ? (NVEncFilter *)m_nvvfxVideoSuperRes.get() : (NVEncFilter *)m_nvvfxSuperRes.get();
+        const NVEncFilterParam *nvvfxParam = (m_nvvfxVideoSuperRes)
+            ? (const NVEncFilterParam *)pResizeParam->nvvfxVideoSuperRes.get()
+            : (const NVEncFilterParam *)pResizeParam->nvvfxSuperRes.get();
         info = strsprintf(_T("resize: %s %dx%d -> %dx%d"),
             get_chr_from_value(list_vpp_resize, pResizeParam->interp),
             pParam->frameIn.width, pParam->frameIn.height,
-            pResizeParam->nvvfxSuperRes->frameOut.width, pResizeParam->nvvfxSuperRes->frameOut.height);
+            nvvfxParam->frameOut.width, nvvfxParam->frameOut.height);
         const auto indent2 = tstring(_tcslen(_T("resize:")) + 5, _T(' '));
         const auto indent = tstring(INFO_INDENT) + indent2;
         bool firstIndent = true;
-        if (   pResizeParam->nvvfxSuperRes->frameIn.width != pParam->frameIn.width
-            || pResizeParam->nvvfxSuperRes->frameIn.height != pParam->frameIn.height) {
+        if (   nvvfxParam->frameIn.width != pParam->frameIn.width
+            || nvvfxParam->frameIn.height != pParam->frameIn.height) {
             info += _T("\n") + tstring(INFO_INDENT) + tstring(_tcslen(_T("resize: ")), _T(' '));
             info += strsprintf(_T("%s %dx%d -> %dx%d"),
                 get_chr_from_value(list_vpp_resize, pResizeParam->nvvfxSubAlgo),
                 pParam->frameIn.width, pParam->frameIn.height,
-                pResizeParam->nvvfxSuperRes->frameIn.width, pResizeParam->nvvfxSuperRes->frameIn.height);
+                nvvfxParam->frameIn.width, nvvfxParam->frameIn.height);
         }
-        for (const auto& str : split(m_nvvfxSuperRes->GetInputMessage(), _T("\n"))) {
+        for (const auto& str : split(nvvfxFilter->GetInputMessage(), _T("\n"))) {
             info += _T("\n") + ((firstIndent) ? indent : indent2) + str;
             firstIndent = false;
         }
-        if (   pResizeParam->nvvfxSuperRes->frameOut.width != pParam->frameOut.width
-            || pResizeParam->nvvfxSuperRes->frameOut.height != pParam->frameOut.height) {
+        if (   nvvfxParam->frameOut.width != pParam->frameOut.width
+            || nvvfxParam->frameOut.height != pParam->frameOut.height) {
             info += _T("\n") + tstring(INFO_INDENT) + tstring(_tcslen(_T("resize: ")), _T(' '));
             info += strsprintf(_T("%s %dx%d -> %dx%d"),
                 get_chr_from_value(list_vpp_resize, pResizeParam->nvvfxSubAlgo),
-                pResizeParam->nvvfxSuperRes->frameOut.width, pResizeParam->nvvfxSuperRes->frameOut.height,
+                nvvfxParam->frameOut.width, nvvfxParam->frameOut.height,
                 pParam->frameOut.width, pParam->frameOut.height);
         }
     } else if (m_ngxVSR) {
@@ -1655,6 +1807,7 @@ NVEncFilterParamResize::NVEncFilterParamResize() :
     fsr1(),
     dpid(),
     nvvfxSuperRes(),
+    nvvfxVideoSuperRes(),
     ngxvsr(),
     libplaceboResample() {
 }
@@ -1662,16 +1815,19 @@ NVEncFilterParamResize::NVEncFilterParamResize() :
 NVEncFilterParamResize::~NVEncFilterParamResize() {};
 
 tstring NVEncFilterParamResize::print() const {
-    if (nvvfxSuperRes) {
+    if (nvvfxSuperRes || nvvfxVideoSuperRes) {
+        const NVEncFilterParam *nvvfxParam = (nvvfxVideoSuperRes)
+            ? (const NVEncFilterParam *)nvvfxVideoSuperRes.get()
+            : (const NVEncFilterParam *)nvvfxSuperRes.get();
         auto str = strsprintf(_T("resize: %s %dx%d -> %dx%d"),
             get_chr_from_value(list_vpp_resize, interp),
             frameIn.width, frameIn.height,
-            nvvfxSuperRes->frameOut.width, nvvfxSuperRes->frameOut.height);
-        if (   nvvfxSuperRes->frameOut.width != frameOut.width
-            || nvvfxSuperRes->frameOut.height != frameOut.height) {
+            nvvfxParam->frameOut.width, nvvfxParam->frameOut.height);
+        if (   nvvfxParam->frameOut.width != frameOut.width
+            || nvvfxParam->frameOut.height != frameOut.height) {
             str += strsprintf(_T("\n                       %s %dx%d -> %dx%d"),
                 get_chr_from_value(list_vpp_resize, nvvfxSubAlgo),
-                nvvfxSuperRes->frameOut.width, nvvfxSuperRes->frameOut.height,
+                nvvfxParam->frameOut.width, nvvfxParam->frameOut.height,
                 frameOut.width, frameOut.height);
         }
         return str;
@@ -1721,27 +1877,31 @@ RGY_ERR NVEncFilterResize::run_filter(const RGYFrameInfo *pInputFrame, RGYFrameI
         return RGY_ERR_INVALID_PARAM;
     }
 
-    auto resizeInterp = (m_nvvfxSuperRes) ? pResizeParam->nvvfxSubAlgo : pResizeParam->interp;
-    if (m_nvvfxSuperRes) {
+    auto resizeInterp = (m_nvvfxSuperRes || m_nvvfxVideoSuperRes) ? pResizeParam->nvvfxSubAlgo : pResizeParam->interp;
+    if (m_nvvfxSuperRes || m_nvvfxVideoSuperRes) {
+        NVEncFilter *nvvfxFilter = (m_nvvfxVideoSuperRes) ? (NVEncFilter *)m_nvvfxVideoSuperRes.get() : (NVEncFilter *)m_nvvfxSuperRes.get();
+        const NVEncFilterParam *nvvfxParam = (m_nvvfxVideoSuperRes)
+            ? (const NVEncFilterParam *)pResizeParam->nvvfxVideoSuperRes.get()
+            : (const NVEncFilterParam *)pResizeParam->nvvfxSuperRes.get();
         // 入力フレームの解像度が一致している場合は、先にnvvfxSuperresを適用する
-        if (pResizeParam->nvvfxSuperRes->frameIn.width  == pInputFrame->width
-         && pResizeParam->nvvfxSuperRes->frameIn.height == pInputFrame->height) {
+        if (nvvfxParam->frameIn.width  == pInputFrame->width
+         && nvvfxParam->frameIn.height == pInputFrame->height) {
             int nvvfxOutputNum = 0;
             RGYFrameInfo *outInfo[1] = { 0 };
             RGYFrameInfo inputFrame = *pInputFrame;
-            auto sts_filter = m_nvvfxSuperRes->filter(&inputFrame, (RGYFrameInfo **)&outInfo, &nvvfxOutputNum, stream);
+            auto sts_filter = nvvfxFilter->filter(&inputFrame, (RGYFrameInfo **)&outInfo, &nvvfxOutputNum, stream);
             if (outInfo[0] == nullptr || nvvfxOutputNum != 1) {
-                AddMessage(RGY_LOG_ERROR, _T("Unknown behavior \"%s\".\n"), m_nvvfxSuperRes->name().c_str());
+                AddMessage(RGY_LOG_ERROR, _T("Unknown behavior \"%s\".\n"), nvvfxFilter->name().c_str());
                 return sts_filter;
             }
             if (sts_filter != RGY_ERR_NONE || nvvfxOutputNum != 1) {
-                AddMessage(RGY_LOG_ERROR, _T("Error while running filter \"%s\".\n"), m_nvvfxSuperRes->name().c_str());
+                AddMessage(RGY_LOG_ERROR, _T("Error while running filter \"%s\".\n"), nvvfxFilter->name().c_str());
                 return sts_filter;
             }
             pInputFrame = outInfo[0];
         } else {
-            ppOutputFrames[0]->width = pResizeParam->nvvfxSuperRes->frameIn.width;
-            ppOutputFrames[0]->height = pResizeParam->nvvfxSuperRes->frameIn.height;
+            ppOutputFrames[0]->width = nvvfxParam->frameIn.width;
+            ppOutputFrames[0]->height = nvvfxParam->frameIn.height;
         }
     } else if (m_ngxVSR || m_libplaceboResample) {
         RGYFrameInfo inputFrame = *pInputFrame;
@@ -1855,22 +2015,24 @@ RGY_ERR NVEncFilterResize::run_filter(const RGYFrameInfo *pInputFrame, RGYFrameI
                 return sts;
             }
         }
-        if (m_nvvfxSuperRes
-            && pResizeParam->frameOut.width  != ppOutputFrames[0]->width
-            && pResizeParam->frameOut.height != ppOutputFrames[0]->height) {
-            int nvvfxOutputNum = 0;
-            RGYFrameInfo *outInfo[1] = { 0 };
-            RGYFrameInfo inputFrame = *ppOutputFrames[0];
-            auto sts_filter = m_nvvfxSuperRes->filter(&inputFrame, (RGYFrameInfo **)&outInfo, &nvvfxOutputNum, stream);
-            if (outInfo[0] == nullptr || nvvfxOutputNum != 1) {
-                AddMessage(RGY_LOG_ERROR, _T("Unknown behavior \"%s\".\n"), m_nvvfxSuperRes->name().c_str());
-                return sts_filter;
+        if (m_nvvfxSuperRes || m_nvvfxVideoSuperRes) {
+            NVEncFilter *nvvfxFilter = (m_nvvfxVideoSuperRes) ? (NVEncFilter *)m_nvvfxVideoSuperRes.get() : (NVEncFilter *)m_nvvfxSuperRes.get();
+            if (pResizeParam->frameOut.width  != ppOutputFrames[0]->width
+                && pResizeParam->frameOut.height != ppOutputFrames[0]->height) {
+                int nvvfxOutputNum = 0;
+                RGYFrameInfo *outInfo[1] = { 0 };
+                RGYFrameInfo inputFrame = *ppOutputFrames[0];
+                auto sts_filter = nvvfxFilter->filter(&inputFrame, (RGYFrameInfo **)&outInfo, &nvvfxOutputNum, stream);
+                if (outInfo[0] == nullptr || nvvfxOutputNum != 1) {
+                    AddMessage(RGY_LOG_ERROR, _T("Unknown behavior \"%s\".\n"), nvvfxFilter->name().c_str());
+                    return sts_filter;
+                }
+                if (sts_filter != RGY_ERR_NONE || nvvfxOutputNum != 1) {
+                    AddMessage(RGY_LOG_ERROR, _T("Error while running filter \"%s\".\n"), nvvfxFilter->name().c_str());
+                    return sts_filter;
+                }
+                ppOutputFrames[0] = outInfo[0];
             }
-            if (sts_filter != RGY_ERR_NONE || nvvfxOutputNum != 1) {
-                AddMessage(RGY_LOG_ERROR, _T("Error while running filter \"%s\".\n"), m_nvvfxSuperRes->name().c_str());
-                return sts_filter;
-            }
-            ppOutputFrames[0] = outInfo[0];
         }
     } else {
         sts = copyFrameAsync(ppOutputFrames[0], pInputFrame, stream);
@@ -1886,6 +2048,7 @@ void NVEncFilterResize::close() {
     m_frameBuf.clear();
     m_ngxVSR.reset();
     m_nvvfxSuperRes.reset();
+    m_nvvfxVideoSuperRes.reset();
     m_libplaceboResample.reset();
     m_weightSpline.reset();
     m_weightSplineAlgo = RGY_VPP_RESIZE_UNKNOWN;

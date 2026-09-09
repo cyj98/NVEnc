@@ -926,6 +926,7 @@ enum RGY_VPP_RESIZE_ALGO {
 #endif
 #if (ENCODER_NVENC && (!defined(_M_IX86) || FOR_AUO)) || CUFILTERS || CLFILTERS_AUF
     RGY_VPP_RESIZE_NVVFX_SUPER_RES,
+    RGY_VPP_RESIZE_NVVFX_VIDEO_SUPER_RES,
     RGY_VPP_RESIZE_NVVFX_MAX,
 #endif
 #if (ENCODER_NVENC && (!defined(_M_IX86) || FOR_AUO)) || CUFILTERS || CLFILTERS_AUF
@@ -1114,6 +1115,7 @@ const CX_DESC list_vpp_resize[] = {
 #endif
 #if ENCODER_NVENC && (!defined(_M_IX86) || FOR_AUO) || CUFILTERS || CLFILTERS_AUF
     { _T("nvvfx-superres"),  RGY_VPP_RESIZE_NVVFX_SUPER_RES },
+    { _T("nvvfx-videosuperres"), RGY_VPP_RESIZE_NVVFX_VIDEO_SUPER_RES },
 #endif
 #if ENCODER_NVENC && (!defined(_M_IX86) || FOR_AUO) || CUFILTERS || CLFILTERS_AUF
     { _T("ngx-vsr"),      RGY_VPP_RESIZE_NGX_VSR },
@@ -1212,6 +1214,7 @@ const CX_DESC list_vpp_resize_help[] = {
 #endif
 #if ENCODER_NVENC && (!defined(_M_IX86) || FOR_AUO) || CUFILTERS || CLFILTERS_AUF
     { _T("nvvfx-superres"),  RGY_VPP_RESIZE_NVVFX_SUPER_RES },
+    { _T("nvvfx-videosuperres"), RGY_VPP_RESIZE_NVVFX_VIDEO_SUPER_RES },
 #endif
 #if ENCODER_NVENC && (!defined(_M_IX86) || FOR_AUO) || CUFILTERS || CLFILTERS_AUF
     { _T("ngx-vsr"),      RGY_VPP_RESIZE_NGX_VSR },
@@ -1262,7 +1265,7 @@ const CX_DESC list_vpp_resize_help[] = {
 };
 
 static const char *paramsResizeLibPlacebo[] = { "algo", "pl-radius", "pl-clamp", "pl-taper", "pl-blur", "pl-antiring"/*, "pl-cplace"*/ };
-static const char *paramsResizeNVEnc[] = { "superres-mode", "superres-strength", "vsr-quality" };
+static const char *paramsResizeNVEnc[] = { "superres-mode", "superres-strength", "videosuperres-quality", "vsr-quality" };
 static const char *paramsResizeQSVEnc[] = { "superres-mode", "superres-algo" };
 static const char *paramsResizeFsr1[] = { "sharpness" };
 static const char *paramsResizeNis[]      = { "cascade", "sharpness", "hdr", "opt" };

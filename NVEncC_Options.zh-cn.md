@@ -2441,6 +2441,7 @@ npp dll可以在[这里](https://github.com/rigaya/NVEnc/releases/tag/7.00) (npp
     | super         | NPP 库提供的所谓的 "super sampling"  | ○ |
     | lanczos       | Lanczos 插值                    | ○ |
     | nvvfx-superres | 基于nvvfx库的超分辨率(仅适用于放大) |   |
+    | nvvfx-videosuperres | 基于nvvfx库的视频超分辨率 (VFX SDK 1.2) |   |
 
   - superres-mode=&lt;int&gt;  
     选择nvvfx-superres的模式
@@ -2448,12 +2449,23 @@ npp dll可以在[这里](https://github.com/rigaya/NVEnc/releases/tag/7.00) (npp
     - 1 ... 激进 (default)
   - superres-strength=&lt;float&gt;  
     nvvfx-superres的强度(0.0 - 1.0, default = 0.4)
+  - videosuperres-quality=&lt;int&gt;  
+    nvvfx-videosuperres的品质(0 - 19, 除去5 - 7, default = 1)
+    - 0 ... 双三次插值
+    - 1 - 4 ... superres (Low / Medium / High / Ultra)
+    - 8 - 11 ... 降噪
+    - 12 - 15 ... 去模糊 (deblur)
+    - 16 - 19 ... 高码率细节恢复 (需要 VFX SDK 1.2 或更新版本)
+    模式 8 - 15 不改变分辨率，输出分辨率需要与输入相同。
+    模式 1 - 4 与 16 - 19 支持放大。
 
 - 注意事项
   - 标记为"○"的算法需要[NPP library](https://developer.nvidia.com/npp)，仅在 x64 版本支持。要使用这些算法，需要另外下载 nppc64_10.dll, nppif64_10.dll, nppig64_10.dll并把它和 NVEncC64.exe 放置在同一目录。
     这些npp dll可以在[这里](https://github.com/rigaya/NVEnc/releases/tag/7.00) (npp64_10_dll_7zip.7z)下载。
   - ```nvvfx-superres``` 是来自[NVIDIA MAXINE VideoEffects SDK](https://github.com/NVIDIA/MAXINE-VFX-SDK)的超分辨率过滤器, 仅在x64版本支持。
     这一模式支持 Turing 架构(RTX20xx)及更新的显卡，如果要使用这一模式，需要下载并安装 [Video Effect models and runtime dependencies](https://www.nvidia.com/broadcast-sdk-resources).
+  - ```nvvfx-videosuperres``` 是 [NVIDIA MAXINE VideoEffects SDK](https://github.com/NVIDIA/MAXINE-VFX-SDK) 1.2 新增的视频超分辨率过滤器, 仅在x64版本支持。
+    这一模式支持 Turing 架构(RTX20xx)及更新的显卡，使用 quality 8 - 19 时需要 VFX SDK 1.2 或更新版本的运行时。
 
 
 ```
@@ -2465,6 +2477,9 @@ npp dll可以在[这里](https://github.com/rigaya/NVEnc/releases/tag/7.00) (npp
 
 例子: 使用 nvvfx-superres, 模式为激进
 --vpp-resize algo=nvvfx-superres,superres-mode=1
+
+例子: 使用 nvvfx-videosuperres (VFX SDK 1.2, quality 16)
+--vpp-resize algo=nvvfx-videosuperres,videosuperres-quality=16
   ```
 ### --vpp-unsharp [&lt;param1&gt;=&lt;value1&gt;][,&lt;param2&gt;=&lt;value2&gt;],...
 反锐化滤镜，用于边缘和细节增强。

@@ -39,6 +39,16 @@
 #pragma warning (pop)
 
 using unique_nvvfx_handle = std::unique_ptr<std::remove_pointer<NvVFX_Handle>::type, decltype(&NvVFX_DestroyEffect)>;
+
+// VideoSuperRes was introduced in VFX SDK 1.2.0.0 (the old "SuperRes" effect
+// is no longer implemented in the runtime), so these selectors are not
+// available in the bundled (older) nvVideoEffects.h.
+#ifndef NVVFX_FX_VIDEO_SUPER_RES
+#define NVVFX_FX_VIDEO_SUPER_RES "VideoSuperRes"
+#endif
+#ifndef NVVFX_QUALITY_LEVEL
+#define NVVFX_QUALITY_LEVEL "QualityLevel"
+#endif
 #endif
 
 class NVEncFilterNvvfxEffect : public NVEncFilter {
@@ -64,7 +74,11 @@ protected:
     int m_maxWidth;
     int m_maxHeight;
     std::unique_ptr<NVEncFilterCspCrop> m_srcCrop;
+    std::unique_ptr<NVEncFilterCspCrop> m_srcCrop2;
     std::unique_ptr<NVEncFilterCspCrop> m_dstCrop;
+    // true for effects requiring RGBA U8 interleaved buffers (VideoSuperRes),
+    // false for legacy BGR F32 planar buffers (denoise, superres, upscale)
+    bool m_bgraU8;
     std::unique_ptr<CUMemBuf> m_state;
     std::array<void *, 1> m_stateArray;
     uint32_t m_stateSizeInBytes;
@@ -111,6 +125,14 @@ public:
     virtual tstring print() const override;
 };
 
+class NVEncFilterParamNvvfxVideoSuperRes : public NVEncFilterParamNvvfx {
+public:
+    VppNvvfxVideoSuperRes nvvfxVideoSuperRes;
+    NVEncFilterParamNvvfxVideoSuperRes() : nvvfxVideoSuperRes() {};
+    virtual ~NVEncFilterParamNvvfxVideoSuperRes() {};
+    virtual tstring print() const override;
+};
+
 class NVEncFilterNvvfxDenoise : public NVEncFilterNvvfxEffect {
 public:
     NVEncFilterNvvfxDenoise();
@@ -145,6 +167,16 @@ class NVEncFilterNvvfxUpScaler : public NVEncFilterNvvfxEffect {
 public:
     NVEncFilterNvvfxUpScaler();
     virtual ~NVEncFilterNvvfxUpScaler();
+protected:
+    virtual RGY_ERR checkParam(const NVEncFilterParam *param) override;
+    virtual RGY_ERR setParam(const NVEncFilterParam *param) override;
+    virtual bool compareParam(const NVEncFilterParam *param) const override;
+};
+
+class NVEncFilterNvvfxVideoSuperRes : public NVEncFilterNvvfxEffect {
+public:
+    NVEncFilterNvvfxVideoSuperRes();
+    virtual ~NVEncFilterNvvfxVideoSuperRes();
 protected:
     virtual RGY_ERR checkParam(const NVEncFilterParam *param) override;
     virtual RGY_ERR setParam(const NVEncFilterParam *param) override;

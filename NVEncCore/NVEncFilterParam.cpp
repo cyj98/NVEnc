@@ -142,6 +142,24 @@ tstring VppNvvfxSuperRes::print() const {
         mode, get_cx_desc(list_vpp_nvvfx_mode, mode), strength);
 }
 
+VppNvvfxVideoSuperRes::VppNvvfxVideoSuperRes() :
+    enable(false),
+    quality(FILTER_DEFAULT_NVVFX_VIDEOSUPERRES_QUALITY) {
+
+}
+
+bool VppNvvfxVideoSuperRes::operator==(const VppNvvfxVideoSuperRes &x) const {
+    return enable == x.enable
+        && quality == x.quality;
+}
+bool VppNvvfxVideoSuperRes::operator!=(const VppNvvfxVideoSuperRes &x) const {
+    return !(*this == x);
+}
+
+tstring VppNvvfxVideoSuperRes::print() const {
+    return strsprintf(_T("nvvfx-videosuperres: quality: %d"), quality);
+}
+
 VppNvvfxUpScaler::VppNvvfxUpScaler() :
     enable(false),
     strength(FILTER_DEFAULT_NVVFX_UPSCALER_STRENGTH) {
@@ -215,6 +233,7 @@ VppParam::VppParam() :
     nvvfxDenoise(),
     nvvfxArtifactReduction(),
     nvvfxSuperRes(),
+    nvvfxVideoSuperRes(),
     nvvfxUpScaler(),
     nvvfxModelDir(),
     ngxVSR(),
@@ -231,6 +250,7 @@ bool VppParam::operator==(const VppParam &x) const {
            nvvfxDenoise == x.nvvfxDenoise
         && nvvfxArtifactReduction == x.nvvfxArtifactReduction
         && nvvfxSuperRes == x.nvvfxSuperRes
+        && nvvfxVideoSuperRes == x.nvvfxVideoSuperRes
         && nvvfxUpScaler == x.nvvfxUpScaler
         && nvvfxModelDir == x.nvvfxModelDir;
 
@@ -325,6 +345,15 @@ int parse_one_vppnv_option(const TCHAR* option_name, const TCHAR* strInput[], in
                 if (param_arg == _T("superres-strength")) {
                     try {
                         vppnv->nvvfxSuperRes.strength = std::stof(param_val);
+                    } catch (...) {
+                        print_cmd_error_invalid_value(tstring(option_name) + _T(" ") + param_arg + _T("="), param_val);
+                        return 1;
+                    }
+                    continue;
+                }
+                if (param_arg == _T("videosuperres-quality")) {
+                    try {
+                        vppnv->nvvfxVideoSuperRes.quality = std::stoi(param_val);
                     } catch (...) {
                         print_cmd_error_invalid_value(tstring(option_name) + _T(" ") + param_arg + _T("="), param_val);
                         return 1;
@@ -640,6 +669,11 @@ tstring gen_cmd(const VppParam *param, const VppParam *defaultPrm, RGY_VPP_RESIZ
         }
         if (param->nvvfxSuperRes.strength != defaultPrm->nvvfxSuperRes.strength) {
             cmd << _T(",superres-strength=") << param->nvvfxSuperRes.strength;
+        }
+    } else if (resize_algo == RGY_VPP_RESIZE_NVVFX_VIDEO_SUPER_RES) {
+        cmd << _T(" --vpp-resize ") << get_chr_from_value(list_vpp_resize, resize_algo);
+        if (param->nvvfxVideoSuperRes.quality != defaultPrm->nvvfxVideoSuperRes.quality) {
+            cmd << _T(",videosuperres-quality=") << param->nvvfxVideoSuperRes.quality;
         }
     }
 #endif

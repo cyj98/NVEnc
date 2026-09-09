@@ -3385,6 +3385,7 @@ Specify the resizing algorithm.
       | name | description |
       |:---|:---|
       | nvvfx-superres | Super Resolution based on nvvfx library (upscale only)     |
+      | nvvfx-videosuperres | Video Super Resolution based on nvvfx library (VFX SDK 1.2) |
 
       ```nvvfx-superres``` is super resolution filter from [NVIDIA MAXINE VideoEffects SDK](https://github.com/NVIDIA/MAXINE-VFX-SDK), which is supported on  x64 version only.
       This mode is supported on Turing Gen GPU (RTX20xx) or later. Please download and install [Video Effect models and runtime dependencies](https://www.nvidia.com/broadcast-sdk-resources) to use this mode.
@@ -3397,6 +3398,20 @@ Specify the resizing algorithm.
       
         - superres-strength=&lt;float&gt;  
           strength for nvvfx-superres (0.0 - 1.0, default = 0.4)
+
+      ```nvvfx-videosuperres``` is the Video Super Resolution filter added in [NVIDIA MAXINE VideoEffects SDK](https://github.com/NVIDIA/MAXINE-VFX-SDK) 1.2, supported on x64 version only.
+      This mode is supported on Turing Gen GPU (RTX20xx) or later. Please download and install [Video Effect models and runtime dependencies](https://www.nvidia.com/broadcast-sdk-resources) to use this mode.
+
+      - Additional parameters
+        - videosuperres-quality=&lt;int&gt;  
+          quality for nvvfx-videosuperres (0 - 19, except 5 - 7, default = 1)
+          - 0 ... bicubic
+          - 1 - 4 ... superres (Low / Medium / High / Ultra)
+          - 8 - 11 ... denoise
+          - 12 - 15 ... deblur
+          - 16 - 19 ... high-bitrate detail restoration (VFX SDK 1.2 or later)
+          modes 8 - 15 do not resize the frame, and require the output resolution to be the same as the input.
+          modes 1 - 4 and 16 - 19 support upscaling.
 
     - [NGX](https://docs.nvidia.com/rtx/ngx/programming-guide/index.html) library resize filters
 
@@ -3471,6 +3486,9 @@ Specify the resizing algorithm.
 
   Examples: Use nvvfx-superres in mode 1
   --vpp-resize algo=nvvfx-superres,superres-mode=1
+
+  Examples: Use nvvfx-videosuperres (VFX SDK 1.2, quality 16)
+  --vpp-resize algo=nvvfx-videosuperres,videosuperres-quality=16
 
   Examples: Use ngx-vsr in best quality
   --vpp-resize algo=ngx-vsr,vsr-quality=4

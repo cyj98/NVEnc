@@ -45,6 +45,7 @@ NVEncFilterNvvfxEffect::NVEncFilterNvvfxEffect() :
     m_effectName(),
     m_maxWidth(std::numeric_limits<decltype(m_maxWidth)>::max()),
     m_maxHeight(std::numeric_limits<decltype(m_maxHeight)>::max()),
+    m_bgraU8(false),
     m_state(),
     m_stateArray(),
     m_stateSizeInBytes(0) {
@@ -68,6 +69,7 @@ void NVEncFilterNvvfxEffect::close() {
 #endif
     AddMessage(RGY_LOG_DEBUG, _T("Close src scp conversion filter.\n"));
     m_srcCrop.reset();
+    m_srcCrop2.reset();
     AddMessage(RGY_LOG_DEBUG, _T("Close dst scp conversion filter.\n"));
     m_dstCrop.reset();
 }
@@ -178,6 +180,28 @@ RGY_ERR NVEncFilterNvvfxEffect::init(shared_ptr<NVEncFilterParam> pParam, shared
     if (err != RGY_ERR_NONE) {
         return err;
     }
+    // VFX SDK 1.2+ expects RGBA U8 interleaved buffers for VideoSuperRes,
+    // while pre-1.2 runtimes (0.7.x) only accept the legacy BGR F32 planar
+    // layout. Pick the buffer format by the loaded runtime version so that
+    // behavior on older runtimes stays identical to the legacy format.
+    {
+        uint32_t vfxVersion = 0;
+        if (err_to_rgy(NvVFX_GetVersion(&vfxVersion)) == RGY_ERR_NONE
+            && vfxVersion >= ((1u << 24) | (2u << 16))) {
+            AddMessage(RGY_LOG_DEBUG, _T("nvvfx runtime version %d.%d: using RGBA U8 buffers.\n"),
+                (vfxVersion >> 24) & 0xff, (vfxVersion >> 16) & 0xff);
+        } else {
+            m_bgraU8 = false;
+            AddMessage(RGY_LOG_WARN, _T("nvvfx runtime version %d.%d does not support RGBA U8 buffers (requires 1.2+), using legacy BGR F32 planar buffers.\n"),
+                (vfxVersion >> 24) & 0xff, (vfxVersion >> 16) & 0xff);
+            if (auto prmVsr = dynamic_cast<const NVEncFilterParamNvvfxVideoSuperRes*>(pParam.get());
+                prmVsr != nullptr && prmVsr->nvvfxVideoSuperRes.quality >= 8) {
+                AddMessage(RGY_LOG_ERROR, _T("quality 8-19 requires VFX SDK 1.2 or later, but the loaded nvvfx runtime is %d.%d. Please install or update the NVIDIA Video Effects runtime, or use quality 0-4.\n"),
+                    (vfxVersion >> 24) & 0xff, (vfxVersion >> 16) & 0xff);
+                return RGY_ERR_UNSUPPORTED;
+            }
+        }
+    }
     if (false) {
         uint32_t maxInputWidth = 0;
         err = err_to_rgy(NvVFX_GetU32(m_effect.get(), NVVFX_MAX_INPUT_WIDTH, &maxInputWidth));
@@ -224,8 +248,13 @@ RGY_ERR NVEncFilterNvvfxEffect::init(shared_ptr<NVEncFilterParam> pParam, shared
         // そうしないと128で割り切れないwidthの場合にエラーが出る
         AddMessage(RGY_LOG_DEBUG, _T("Create nvvfx input image %dx%d.\n"), pParam->frameIn.width, pParam->frameIn.height);
         m_srcImg = std::make_unique<NvCVImage>();
-        err = err_to_rgy(NvCVImage_Alloc(m_srcImg.get(), pParam->frameIn.width, pParam->frameIn.height,
-            NVCV_BGR, NVCV_F32, NVCV_PLANAR, NVCV_GPU, 1));
+        if (m_bgraU8) {
+            err = err_to_rgy(NvCVImage_Alloc(m_srcImg.get(), pParam->frameIn.width, pParam->frameIn.height,
+                NVCV_RGBA, NVCV_U8, NVCV_INTERLEAVED, NVCV_GPU, 1));
+        } else {
+            err = err_to_rgy(NvCVImage_Alloc(m_srcImg.get(), pParam->frameIn.width, pParam->frameIn.height,
+                NVCV_BGR, NVCV_F32, NVCV_PLANAR, NVCV_GPU, 1));
+        }
         if (err != RGY_ERR_NONE) {
             AddMessage(RGY_LOG_ERROR, _T("Failed to allocate nvvfx input image %dx%d: %s.\n"),
                 pParam->frameIn.width, pParam->frameIn.height, get_err_mes(err));
@@ -246,8 +275,13 @@ RGY_ERR NVEncFilterNvvfxEffect::init(shared_ptr<NVEncFilterParam> pParam, shared
         // そうしないと128で割り切れないwidthの場合にエラーが出る
         AddMessage(RGY_LOG_DEBUG, _T("Create nvvfx output image %dx%d.\n"), pParam->frameOut.width, pParam->frameOut.height);
         m_dstImg = std::make_unique<NvCVImage>();
-        err = err_to_rgy(NvCVImage_Alloc(m_dstImg.get(), pParam->frameOut.width, pParam->frameOut.height,
-            NVCV_BGR, NVCV_F32, NVCV_PLANAR, NVCV_GPU, 1));
+        if (m_bgraU8) {
+            err = err_to_rgy(NvCVImage_Alloc(m_dstImg.get(), pParam->frameOut.width, pParam->frameOut.height,
+                NVCV_RGBA, NVCV_U8, NVCV_INTERLEAVED, NVCV_GPU, 1));
+        } else {
+            err = err_to_rgy(NvCVImage_Alloc(m_dstImg.get(), pParam->frameOut.width, pParam->frameOut.height,
+                NVCV_BGR, NVCV_F32, NVCV_PLANAR, NVCV_GPU, 1));
+        }
         if (err != RGY_ERR_NONE) {
             AddMessage(RGY_LOG_ERROR, _T("Failed to allocate nvvfx output image %dx%d: %s.\n"),
                 pParam->frameOut.width, pParam->frameOut.height, get_err_mes(err));
@@ -287,6 +321,28 @@ RGY_ERR NVEncFilterNvvfxEffect::init(shared_ptr<NVEncFilterParam> pParam, shared
         m_srcCrop = std::move(filter);
         AddMessage(RGY_LOG_DEBUG, _T("created %s.\n"), m_srcCrop->GetInputMessage().c_str());
     }
+    if (m_bgraU8 && (!m_srcCrop2
+        || m_srcCrop2->GetFilterParam()->frameIn.width  != pParam->frameIn.width
+        || m_srcCrop2->GetFilterParam()->frameIn.height != pParam->frameIn.height)) {
+        // second hop: BGR F32 planar -> RGB32 (RGBA U8 packed), matching NVCV_RGBA U8 interleaved
+        AddMessage(RGY_LOG_DEBUG, _T("Create input rgb packed conversion filter.\n"));
+        unique_ptr<NVEncFilterCspCrop> filter(new NVEncFilterCspCrop());
+        shared_ptr<NVEncFilterParamCrop> paramCrop(new NVEncFilterParamCrop());
+        paramCrop->frameIn = m_srcCrop->GetFilterParam()->frameOut;
+        paramCrop->frameIn.csp = RGY_CSP_BGR_F32;
+        paramCrop->frameOut = paramCrop->frameIn;
+        paramCrop->frameOut.csp = RGY_CSP_RGB32;
+        paramCrop->baseFps = pParam->baseFps;
+        paramCrop->frameIn.mem_type = RGY_MEM_TYPE_GPU;
+        paramCrop->frameOut.mem_type = RGY_MEM_TYPE_GPU;
+        paramCrop->bOutOverwrite = false;
+        sts = filter->init(paramCrop, m_pLog);
+        if (sts != RGY_ERR_NONE) {
+            return sts;
+        }
+        m_srcCrop2 = std::move(filter);
+        AddMessage(RGY_LOG_DEBUG, _T("created %s.\n"), m_srcCrop2->GetInputMessage().c_str());
+    }
     if (!m_dstCrop
         || m_dstCrop->GetFilterParam()->frameOut.width  != pParam->frameOut.width
         || m_dstCrop->GetFilterParam()->frameOut.height != pParam->frameOut.height) {
@@ -294,7 +350,7 @@ RGY_ERR NVEncFilterNvvfxEffect::init(shared_ptr<NVEncFilterParam> pParam, shared
         unique_ptr<NVEncFilterCspCrop> filter(new NVEncFilterCspCrop());
         shared_ptr<NVEncFilterParamCrop> paramCrop(new NVEncFilterParamCrop());
         paramCrop->frameIn = pParam->frameOut;
-        paramCrop->frameIn.csp = RGY_CSP_BGR_F32;
+        paramCrop->frameIn.csp = m_bgraU8 ? RGY_CSP_RGB32 : RGY_CSP_BGR_F32;
         paramCrop->matrix = prm->vuiInfo.matrix;
         paramCrop->frameOut = pParam->frameOut;
         paramCrop->baseFps = pParam->baseFps;
@@ -402,21 +458,37 @@ RGY_ERR NVEncFilterNvvfxEffect::run_filter(const RGYFrameInfo *pInputFrame, RGYF
     }
 
     if (true) {
-        RGYFrameInfo srcImgInfo = m_srcCrop->GetFilterParam()->frameOut;
+        int cropFilterOutputNum = 0;
+        RGYFrameInfo cropInput = *pInputFrame;
+        RGYFrameInfo *outInfo[1] = { nullptr };
+        if (m_bgraU8) {
+            // first hop: NV12 -> BGR F32 planar, output to the crop filter's internal buffer
+            auto sts_filter = m_srcCrop->filter(&cropInput, outInfo, &cropFilterOutputNum, stream);
+            if (outInfo[0] == nullptr || cropFilterOutputNum != 1) {
+                AddMessage(RGY_LOG_ERROR, _T("Unknown behavior \"%s\".\n"), m_srcCrop->name().c_str());
+                return sts_filter;
+            }
+            if (sts_filter != RGY_ERR_NONE || cropFilterOutputNum != 1) {
+                AddMessage(RGY_LOG_ERROR, _T("Error while running filter \"%s\".\n"), m_srcCrop->name().c_str());
+                return sts_filter;
+            }
+            cropInput = *outInfo[0];
+        }
+        NVEncFilterCspCrop *srcCropFinal = m_bgraU8 ? m_srcCrop2.get() : m_srcCrop.get();
+        RGYFrameInfo srcImgInfo = srcCropFinal->GetFilterParam()->frameOut;
         srcImgInfo.singleAlloc = true;
         srcImgInfo.ptr[0] = (uint8_t *)m_srcImg->pixels;
         srcImgInfo.pitch[0] = m_srcImg->pitch;
 
-        int cropFilterOutputNum = 0;
-        RGYFrameInfo *outInfo[1] = { &srcImgInfo };
-        RGYFrameInfo cropInput = *pInputFrame;
-        auto sts_filter = m_srcCrop->filter(&cropInput, (RGYFrameInfo **)&outInfo, &cropFilterOutputNum, stream);
-        if (outInfo[0] == nullptr || cropFilterOutputNum != 1) {
-            AddMessage(RGY_LOG_ERROR, _T("Unknown behavior \"%s\".\n"), m_srcCrop->name().c_str());
+        RGYFrameInfo *srcOutInfo[1] = { &srcImgInfo };
+        cropFilterOutputNum = 0;
+        auto sts_filter = srcCropFinal->filter(&cropInput, (RGYFrameInfo **)&srcOutInfo, &cropFilterOutputNum, stream);
+        if (srcOutInfo[0] == nullptr || cropFilterOutputNum != 1) {
+            AddMessage(RGY_LOG_ERROR, _T("Unknown behavior \"%s\".\n"), srcCropFinal->name().c_str());
             return sts_filter;
         }
         if (sts_filter != RGY_ERR_NONE || cropFilterOutputNum != 1) {
-            AddMessage(RGY_LOG_ERROR, _T("Error while running filter \"%s\".\n"), m_srcCrop->name().c_str());
+            AddMessage(RGY_LOG_ERROR, _T("Error while running filter \"%s\".\n"), srcCropFinal->name().c_str());
             return sts_filter;
         }
     } else { // デバッグ用
@@ -706,4 +778,69 @@ bool NVEncFilterNvvfxUpScaler::compareParam(const NVEncFilterParam *param) const
     auto target = dynamic_cast<const NVEncFilterParamNvvfxUpScaler *>(param);
     if (!target) return true;
     return prm->nvvfxUpscaler != target->nvvfxUpscaler;
+};
+
+tstring NVEncFilterParamNvvfxVideoSuperRes::print() const {
+    return nvvfxVideoSuperRes.print();
+}
+
+NVEncFilterNvvfxVideoSuperRes::NVEncFilterNvvfxVideoSuperRes() {
+    m_name = _T("nvvfx-videosuperres");
+    m_maxHeight = 2160;
+    // VideoSuperRes (VFX SDK 1.2+) requires RGBA/BGRA U8 interleaved buffers,
+    // unlike legacy nvvfx effects which use BGR F32 planar buffers.
+    m_bgraU8 = true;
+#if ENABLE_NVVFX
+    m_effectName = NVVFX_FX_VIDEO_SUPER_RES;
+#endif
+}
+
+NVEncFilterNvvfxVideoSuperRes::~NVEncFilterNvvfxVideoSuperRes() {
+    close();
+}
+
+RGY_ERR NVEncFilterNvvfxVideoSuperRes::checkParam(const NVEncFilterParam *param) {
+    auto prm = dynamic_cast<const NVEncFilterParamNvvfxVideoSuperRes*>(param);
+    if (!prm) {
+        AddMessage(RGY_LOG_ERROR, _T("Invalid parameter type.\n"));
+        return RGY_ERR_INVALID_PARAM;
+    }
+    // quality 0 = bicubic, 1-4 = superres (Low/Medium/High/Ultra),
+    // 8-11 = denoise, 12-15 = deblur, 16-19 = high-bitrate detail restoration (VFX SDK 1.2+).
+    // Only modes 8-15 require input=output resolution (per VFX 1.2 docs);
+    // 1-4 and 16-19 are upscalers and support resizing.
+    if (prm->nvvfxVideoSuperRes.quality < 0 || 19 < prm->nvvfxVideoSuperRes.quality
+        || (5 <= prm->nvvfxVideoSuperRes.quality && prm->nvvfxVideoSuperRes.quality < 8)) {
+        AddMessage(RGY_LOG_ERROR, _T("quality should be 0 - 19 (except 5-7).\n"));
+        return RGY_ERR_INVALID_PARAM;
+    }
+    return RGY_ERR_NONE;
+}
+
+RGY_ERR NVEncFilterNvvfxVideoSuperRes::setParam(const NVEncFilterParam *param) {
+#if !ENABLE_NVVFX
+    AddMessage(RGY_LOG_ERROR, _T("nvvfx filters is not supported on x86 exec file, please use x64 exec file.\n"));
+    return RGY_ERR_UNSUPPORTED;
+#else
+    auto prm = dynamic_cast<const NVEncFilterParamNvvfxVideoSuperRes*>(param);
+    if (!prm) {
+        AddMessage(RGY_LOG_ERROR, _T("Invalid parameter type.\n"));
+        return RGY_ERR_INVALID_PARAM;
+    }
+    auto err = err_to_rgy(NvVFX_SetU32(m_effect.get(), NVVFX_QUALITY_LEVEL, prm->nvvfxVideoSuperRes.quality));
+    if (err != RGY_ERR_NONE) {
+        AddMessage(RGY_LOG_ERROR, _T("Failed to set parameter %s to %d: %s.\n"), NVVFX_QUALITY_LEVEL, prm->nvvfxVideoSuperRes.quality, get_err_mes(err));
+        return RGY_ERR_INVALID_PARAM;
+    }
+    return RGY_ERR_NONE;
+#endif
+}
+
+bool NVEncFilterNvvfxVideoSuperRes::compareParam(const NVEncFilterParam *param) const {
+    if (!m_param) return true;
+    auto prm = dynamic_cast<const NVEncFilterParamNvvfxVideoSuperRes *>(m_param.get());
+    if (!prm) return true;
+    auto target = dynamic_cast<const NVEncFilterParamNvvfxVideoSuperRes *>(param);
+    if (!target) return true;
+    return prm->nvvfxVideoSuperRes != target->nvvfxVideoSuperRes;
 };

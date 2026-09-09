@@ -960,7 +960,8 @@ bool NVEncCore::useNVVFX(const InEncodeVideoParam *inputParam) const {
         || vppnv.nvvfxDenoise.enable
         || vppnv.nvvfxSuperRes.enable
         || vppnv.nvvfxUpScaler.enable
-        || inputParam->vpp.resize_algo == RGY_VPP_RESIZE_NVVFX_SUPER_RES) {
+        || inputParam->vpp.resize_algo == RGY_VPP_RESIZE_NVVFX_SUPER_RES
+        || inputParam->vpp.resize_algo == RGY_VPP_RESIZE_NVVFX_VIDEO_SUPER_RES) {
         return true;
     }
 #endif
@@ -3194,8 +3195,16 @@ RGY_ERR NVEncCore::InitFilters(const InEncodeVideoParam *inputParam) {
         }
     }
     RGY_VPP_RESIZE_TYPE resizeRequired = RGY_VPP_RESIZE_TYPE_NONE;
+    // nvvfx-videosuperres quality 8-15 (denoise/deblur) require the
+    // effect to run at input=output resolution, so the resize filter must be
+    // created even when no resize is requested (requires an explicit
+    // --output-res matching the input resolution). 16-19 (high-bitrate) are
+    // upscalers like 1-4 and follow the normal resize rules.
+    const bool nvvfxVideoSuperResSameRes = inputParam->vpp.resize_algo == RGY_VPP_RESIZE_NVVFX_VIDEO_SUPER_RES
+        && inputParam->vppnv.nvvfxVideoSuperRes.quality >= 8
+        && inputParam->vppnv.nvvfxVideoSuperRes.quality <= 15;
     if ((resizeWidth > 0 && resizeHeight > 0) &&
-        (croppedWidth != resizeWidth || croppedHeight != resizeHeight)) {
+        (croppedWidth != resizeWidth || croppedHeight != resizeHeight || nvvfxVideoSuperResSameRes)) {
         resizeRequired = getVppResizeType(inputParam->vpp.resize_algo);
         if (resizeRequired == RGY_VPP_RESIZE_TYPE_UNKNOWN) {
             PrintMes(RGY_LOG_ERROR, _T("Unknown resize type.\n"));
@@ -4660,7 +4669,13 @@ RGY_ERR NVEncCore::AddFilterCUDA(std::vector<std::unique_ptr<NVEncFilter>>& cufi
         param->dpid = inputParam->vpp.resize_dpid;
         param->nis = inputParam->vpp.resize_nis;
         param->bicubic = inputParam->vpp.resize_bicubic;
-        if (isNvvfxResizeFiter(inputParam->vpp.resize_algo)) {
+        if (inputParam->vpp.resize_algo == RGY_VPP_RESIZE_NVVFX_VIDEO_SUPER_RES) {
+            param->nvvfxVideoSuperRes = std::make_shared<NVEncFilterParamNvvfxVideoSuperRes>();
+            param->nvvfxVideoSuperRes->nvvfxVideoSuperRes = inputParam->vppnv.nvvfxVideoSuperRes;
+            param->nvvfxVideoSuperRes->compute_capability = m_dev->cc();
+            param->nvvfxVideoSuperRes->modelDir = inputParam->vppnv.nvvfxModelDir;
+            param->nvvfxVideoSuperRes->vuiInfo = vuiInfo;
+        } else if (isNvvfxResizeFiter(inputParam->vpp.resize_algo)) {
             param->nvvfxSuperRes = std::make_shared<NVEncFilterParamNvvfxSuperRes>();
             param->nvvfxSuperRes->nvvfxSuperRes = inputParam->vppnv.nvvfxSuperRes;
             param->nvvfxSuperRes->compute_capability = m_dev->cc();

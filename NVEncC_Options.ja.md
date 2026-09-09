@@ -3441,6 +3441,7 @@ nppc64_11.dll, nppif64_11.dll, nppig64_11.dllをNVEncC64と同じフォルダに
       | 名前 | 説明 |
       |:---|:---|
       | nvvfx-superres | NVIDIA Video EffectsによるSuper Resolution (拡大のみ)  |  |
+      | nvvfx-videosuperres | NVIDIA Video Effects (VFX SDK 1.2)によるVideo Super Resolution  |  |
 
       このモードは、[NVIDIA MAXINE VideoEffects SDK](https://github.com/NVIDIA/MAXINE-VFX-SDK)によるAIによって拡大処理を行うので、実行にはx64版の実行ファイルとTuring世代(RTX20xx)以降のGPUが必要。また、あわせて[MAXINE VideoEffects 用のモデルと実行モジュール](https://www.nvidia.com/broadcast-sdk-resources)をダウンロード・インストールしてからお使いください。
 
@@ -3454,6 +3455,19 @@ nppc64_11.dll, nppif64_11.dll, nppig64_11.dllをNVEncC64と同じフォルダに
       
         - superres-strength=&lt;float&gt;  
           nvvfx-superresの強さの指定。 (0.0 - 1.0, デフォルト = 0.4)
+
+      ```nvvfx-videosuperres```は、[NVIDIA MAXINE VideoEffects SDK](https://github.com/NVIDIA/MAXINE-VFX-SDK) 1.2で追加されたVideo Super Resolutionフィルタ。実行にはx64版の実行ファイルとTuring世代(RTX20xx)以降のGPUが必要。また、あわせて[MAXINE VideoEffects 用のモデルと実行モジュール](https://www.nvidia.com/broadcast-sdk-resources)をダウンロード・インストールしてからお使いください。
+
+      - 追加パラメータ
+        - videosuperres-quality=&lt;int&gt;  
+          nvvfx-videosuperres の品質の設定。 (0 - 19 (5 - 7 を除く), デフォルト = 1)
+          - 0 ... バイキュービック
+          - 1 - 4 ... superres (Low / Medium / High / Ultra)
+          - 8 - 11 ... デノイズ
+          - 12 - 15 ... デブラー (ブラー除去)
+          - 16 - 19 ... 高ビットレート向けのディテール復元 (VFX SDK 1.2 以降が必要)
+          モード 8 - 15 は解像度を変更しないので、出力解像度を入力解像度と同じにする必要がある。
+          モード 1 - 4 と 16 - 19 は拡大に対応している。
 
     - [NGX](https://docs.nvidia.com/rtx/ngx/programming-guide/index.html)ライブラリのリサイズフィルタ
   
@@ -3528,6 +3542,9 @@ nppc64_11.dll, nppif64_11.dll, nppig64_11.dllをNVEncC64と同じフォルダに
 
   例: nvvfx-superresを効果強めで使用する
   --vpp-resize algo=nvvfx-superres,superres-mode=1
+
+  例: nvvfx-videosuperresを使用する (VFX SDK 1.2, quality 16)
+  --vpp-resize algo=nvvfx-videosuperres,videosuperres-quality=16
 
   例: ngx-vsrを最高品質で使用する
   --vpp-resize algo=ngx-vsr,vsr-quality=4
