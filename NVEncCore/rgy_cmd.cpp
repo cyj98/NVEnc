@@ -17554,7 +17554,9 @@ tstring gen_cmd_help_vpp() {
 #if ENABLE_NVSDKNGX
             str += strsprintf(_T("\n")
                 _T("      vsr-quality=<int>\n")
-                _T("        quality for ngx-vsr\n"));
+                _T("        quality for ngx-vsr (1 - 4 or 8 - 19, default = 1)\n")
+                _T("        8-11 = denoise, 12-15 = deblur, 16-19 = high-bitrate detail restoration\n")
+                _T("        modes 8-19 require nvngx_vsr.dll from VFX SDK 1.2 or later\n"));
 #endif
 #if ENCODER_QSV
             str += strsprintf(_T("\n")

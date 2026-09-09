@@ -508,8 +508,12 @@ RGY_ERR NVEncFilterNGXVSR::checkParam(const NVEncFilterParam *param) {
         AddMessage(RGY_LOG_ERROR, _T("Invalid parameter type.\n"));
         return RGY_ERR_INVALID_PARAM;
     }
-    if (prm->ngxvsr.quality < 1 || 4 < prm->ngxvsr.quality) {
-        AddMessage(RGY_LOG_ERROR, _T("Invalid quality value %d, must be in the range of 1 to 4.\n"), prm->ngxvsr.quality);
+    // quality 1-4: legacy NGX VSR levels.
+    // quality 8-19: VFX SDK 1.2 nvngx_vsr.dll extension
+    // (8-11 = denoise, 12-15 = deblur, 16-19 = high-bitrate detail restoration).
+    if (prm->ngxvsr.quality < 1 || 19 < prm->ngxvsr.quality
+        || (5 <= prm->ngxvsr.quality && prm->ngxvsr.quality < 8)) {
+        AddMessage(RGY_LOG_ERROR, _T("Invalid quality value %d, must be in the range of 1 to 4 or 8 to 19.\n"), prm->ngxvsr.quality);
         return RGY_ERR_INVALID_PARAM;
     }
     return RGY_ERR_NONE;
