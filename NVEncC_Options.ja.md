@@ -3465,8 +3465,13 @@ nppc64_11.dll, nppif64_11.dll, nppig64_11.dllをNVEncC64と同じフォルダに
 
       - 追加パラメータ
         - vsr-quality=&lt;int&gt;  
-          ngx-vsr使用時の品質の設定。 (デフォルト=1, 1 - 4)
+          ngx-vsr使用時の品質の設定。 (デフォルト=1, 1 - 4 または 8 - 19)
           数字が大きいほど高品質。
+          - 1 - 4 ... VSR 品質レベル
+          - 8 - 11 ... デノイズ
+          - 12 - 15 ... デブラー (ブラー除去)
+          - 16 - 19 ... 高ビットレート向けのディテール復元 (VFX SDK 1.2 以降の nvngx_vsr.dll が必要)
+          モード 8 - 15 は解像度を変更しないので、出力解像度を入力解像度と同じにする必要がある。
 
     - [libplacebo](https://code.videolan.org/videolan/libplacebo)ライブラリのリサイズフィルタ
     

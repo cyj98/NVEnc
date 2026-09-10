@@ -3408,8 +3408,13 @@ Specify the resizing algorithm.
 
       - Additional parameters
         - vsr-quality=&lt;int&gt;  
-          quality for ngx-vsr (1 - 4, default=1)
+          quality for ngx-vsr (1 - 4 or 8 - 19, default=1)
           larger value results higher quality.
+          - 1 - 4 ... VSR quality levels
+          - 8 - 11 ... denoise
+          - 12 - 15 ... deblur
+          - 16 - 19 ... high-bitrate detail restoration (requires nvngx_vsr.dll from VFX SDK 1.2 or later)
+          modes 8 - 15 do not resize the frame, and require the output resolution to be the same as the input.
       
     - [libplacebo](https://code.videolan.org/videolan/libplacebo) library resize filters
 
