@@ -17551,8 +17551,8 @@ tstring gen_cmd_help_vpp() {
                 _T("      superres-strength=<float>\n")
                 _T("        strength for nvvfx-superres (0.0 - 1.0, default = 0.4)\n")
                 _T("      videosuperres-quality=<int>\n")
-                _T("        quality for nvvfx-videosuperres (0 - 19, except 5-7, default = 1)\n")
-                _T("        0 = bicubic, 1-4 = superres (Low/Medium/High/Ultra), 8-11 = denoise,\n")
+                _T("        quality for nvvfx-videosuperres (1 - 19, except 5-7, default = 1)\n")
+                _T("        1-4 = superres (Low/Medium/High/Ultra), 8-11 = denoise,\n")
                 _T("        12-15 = deblur, 16-19 = high-bitrate detail restoration (VFX SDK 1.2+)\n")
                 _T("        modes 8-15 do not resize: use --output-res with the same resolution as input\n"));
 #endif

@@ -196,7 +196,7 @@ RGY_ERR NVEncFilterNvvfxEffect::init(shared_ptr<NVEncFilterParam> pParam, shared
                 (vfxVersion >> 24) & 0xff, (vfxVersion >> 16) & 0xff);
             if (auto prmVsr = dynamic_cast<const NVEncFilterParamNvvfxVideoSuperRes*>(pParam.get());
                 prmVsr != nullptr && prmVsr->nvvfxVideoSuperRes.quality >= 8) {
-                AddMessage(RGY_LOG_ERROR, _T("quality 8-19 requires VFX SDK 1.2 or later, but the loaded nvvfx runtime is %d.%d. Please install or update the NVIDIA Video Effects runtime, or use quality 0-4.\n"),
+                AddMessage(RGY_LOG_ERROR, _T("quality 8-19 requires VFX SDK 1.2 or later, but the loaded nvvfx runtime is %d.%d. Please install or update the NVIDIA Video Effects runtime, or use quality 1-4.\n"),
                     (vfxVersion >> 24) & 0xff, (vfxVersion >> 16) & 0xff);
                 return RGY_ERR_UNSUPPORTED;
             }
@@ -805,13 +805,13 @@ RGY_ERR NVEncFilterNvvfxVideoSuperRes::checkParam(const NVEncFilterParam *param)
         AddMessage(RGY_LOG_ERROR, _T("Invalid parameter type.\n"));
         return RGY_ERR_INVALID_PARAM;
     }
-    // quality 0 = bicubic, 1-4 = superres (Low/Medium/High/Ultra),
+    // quality 1-4 = superres (Low/Medium/High/Ultra),
     // 8-11 = denoise, 12-15 = deblur, 16-19 = high-bitrate detail restoration (VFX SDK 1.2+).
     // Only modes 8-15 require input=output resolution (per VFX 1.2 docs);
     // 1-4 and 16-19 are upscalers and support resizing.
-    if (prm->nvvfxVideoSuperRes.quality < 0 || 19 < prm->nvvfxVideoSuperRes.quality
+    if (prm->nvvfxVideoSuperRes.quality < 1 || 19 < prm->nvvfxVideoSuperRes.quality
         || (5 <= prm->nvvfxVideoSuperRes.quality && prm->nvvfxVideoSuperRes.quality < 8)) {
-        AddMessage(RGY_LOG_ERROR, _T("quality should be 0 - 19 (except 5-7).\n"));
+        AddMessage(RGY_LOG_ERROR, _T("quality should be 1 - 19 (except 5-7).\n"));
         return RGY_ERR_INVALID_PARAM;
     }
     return RGY_ERR_NONE;

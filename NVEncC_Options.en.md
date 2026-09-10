@@ -3404,8 +3404,7 @@ Specify the resizing algorithm.
 
       - Additional parameters
         - videosuperres-quality=&lt;int&gt;  
-          quality for nvvfx-videosuperres (0 - 19, except 5 - 7, default = 1)
-          - 0 ... bicubic
+          quality for nvvfx-videosuperres (1 - 19, except 5 - 7, default = 1)
           - 1 - 4 ... superres (Low / Medium / High / Ultra)
           - 8 - 11 ... denoise
           - 12 - 15 ... deblur

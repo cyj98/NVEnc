@@ -3460,8 +3460,7 @@ nppc64_11.dll, nppif64_11.dll, nppig64_11.dllをNVEncC64と同じフォルダに
 
       - 追加パラメータ
         - videosuperres-quality=&lt;int&gt;  
-          nvvfx-videosuperres の品質の設定。 (0 - 19 (5 - 7 を除く), デフォルト = 1)
-          - 0 ... バイキュービック
+          nvvfx-videosuperres の品質の設定。 (1 - 19 (5 - 7 を除く), デフォルト = 1)
           - 1 - 4 ... superres (Low / Medium / High / Ultra)
           - 8 - 11 ... デノイズ
           - 12 - 15 ... デブラー (ブラー除去)

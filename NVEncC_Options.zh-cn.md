@@ -2450,8 +2450,7 @@ npp dll可以在[这里](https://github.com/rigaya/NVEnc/releases/tag/7.00) (npp
   - superres-strength=&lt;float&gt;  
     nvvfx-superres的强度(0.0 - 1.0, default = 0.4)
   - videosuperres-quality=&lt;int&gt;  
-    nvvfx-videosuperres的品质(0 - 19, 除去5 - 7, default = 1)
-    - 0 ... 双三次插值
+    nvvfx-videosuperres的品质(1 - 19, 除去5 - 7, default = 1)
     - 1 - 4 ... superres (Low / Medium / High / Ultra)
     - 8 - 11 ... 降噪
     - 12 - 15 ... 去模糊 (deblur)
