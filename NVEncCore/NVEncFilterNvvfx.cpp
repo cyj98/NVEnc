@@ -184,7 +184,10 @@ RGY_ERR NVEncFilterNvvfxEffect::init(shared_ptr<NVEncFilterParam> pParam, shared
     // while pre-1.2 runtimes (0.7.x) only accept the legacy BGR F32 planar
     // layout. Pick the buffer format by the loaded runtime version so that
     // behavior on older runtimes stays identical to the legacy format.
-    {
+    // (Only VideoSuperRes is affected by the runtime version; the legacy
+    // nvvfx effects always use their own buffer format regardless.)
+    if (const auto prmVsr = dynamic_cast<const NVEncFilterParamNvvfxVideoSuperRes*>(pParam.get());
+        prmVsr != nullptr) {
         uint32_t vfxVersion = 0;
         if (err_to_rgy(NvVFX_GetVersion(&vfxVersion)) == RGY_ERR_NONE
             && vfxVersion >= ((1u << 24) | (2u << 16))) {
@@ -194,8 +197,7 @@ RGY_ERR NVEncFilterNvvfxEffect::init(shared_ptr<NVEncFilterParam> pParam, shared
             m_bgraU8 = false;
             AddMessage(RGY_LOG_WARN, _T("nvvfx runtime version %d.%d does not support RGBA U8 buffers (requires 1.2+), using legacy BGR F32 planar buffers.\n"),
                 (vfxVersion >> 24) & 0xff, (vfxVersion >> 16) & 0xff);
-            if (auto prmVsr = dynamic_cast<const NVEncFilterParamNvvfxVideoSuperRes*>(pParam.get());
-                prmVsr != nullptr && prmVsr->nvvfxVideoSuperRes.quality >= 8) {
+            if (prmVsr->nvvfxVideoSuperRes.quality >= 8) {
                 AddMessage(RGY_LOG_ERROR, _T("quality 8-19 requires VFX SDK 1.2 or later, but the loaded nvvfx runtime is %d.%d. Please install or update the NVIDIA Video Effects runtime, or use quality 1-4.\n"),
                     (vfxVersion >> 24) & 0xff, (vfxVersion >> 16) & 0xff);
                 return RGY_ERR_UNSUPPORTED;

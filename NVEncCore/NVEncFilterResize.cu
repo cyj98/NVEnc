@@ -2018,7 +2018,7 @@ RGY_ERR NVEncFilterResize::run_filter(const RGYFrameInfo *pInputFrame, RGYFrameI
         if (m_nvvfxSuperRes || m_nvvfxVideoSuperRes) {
             NVEncFilter *nvvfxFilter = (m_nvvfxVideoSuperRes) ? (NVEncFilter *)m_nvvfxVideoSuperRes.get() : (NVEncFilter *)m_nvvfxSuperRes.get();
             if (pResizeParam->frameOut.width  != ppOutputFrames[0]->width
-                && pResizeParam->frameOut.height != ppOutputFrames[0]->height) {
+                || pResizeParam->frameOut.height != ppOutputFrames[0]->height) {
                 int nvvfxOutputNum = 0;
                 RGYFrameInfo *outInfo[1] = { 0 };
                 RGYFrameInfo inputFrame = *ppOutputFrames[0];
